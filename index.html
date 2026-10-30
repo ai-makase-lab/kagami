@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>かがみあわせ v0.3</title>
+<style>
+  :root { --bg:#141826; --panel:#1d2336; --text:#e8ecf5; --muted:#8c96b0; --blue:#4da3ff; --orange:#ff9b45; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:"Segoe UI","Yu Gothic UI",sans-serif; }
+  main { max-width:760px; margin:0 auto; padding:16px; }
+  h1 { font-size:22px; margin:4px 0 2px; letter-spacing:.05em; }
+  .sub { color:var(--muted); font-size:13px; margin:0 0 12px; }
+  .bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; }
+  .info { margin-left:auto; font-variant-numeric:tabular-nums; }
+  button, select { background:var(--panel); color:var(--text); border:1px solid #2f3854; border-radius:8px; padding:8px 12px; font:inherit; cursor:pointer; }
+  button:hover { border-color:#4b5a85; }
+  canvas { width:100%; height:auto; display:block; border-radius:12px; background:#0e1220; }
+  .pad { display:grid; grid-template-columns:repeat(3,56px); gap:6px; justify-content:center; margin:12px 0; }
+  .pad button { height:48px; font-size:20px; padding:0; }
+  .msg { min-height:24px; text-align:center; margin:8px 0; }
+  section { background:var(--panel); border-radius:12px; padding:12px 16px; margin-top:16px; }
+  section h2 { font-size:16px; margin:4px 0 8px; }
+  .rules { color:var(--muted); font-size:14px; line-height:1.7; margin:0; padding-left:20px; }
+  details.data { margin-top:16px; }
+  details.data > summary { cursor:pointer; color:var(--muted); padding:8px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>かがみあわせ <small style="color:var(--muted)">v0.3</small></h1>
+  <p class="sub">企画・ルール・プログラム:Claude</p>
+
+  <div class="bar">
+    <select id="stageSel" aria-label="ステージ"></select>
+    <button id="undoBtn">戻す (Z)</button>
+    <button id="resetBtn">やり直し (R)</button>
+    <button id="hintBtn">ヒント (H)</button>
+    <span class="info" id="info"></span>
+  </div>
+  <canvas id="cv" width="720" height="380"></canvas>
+  <div class="msg" id="msg"></div>
+  <div class="pad">
+    <span></span><button data-d="up">↑</button><span></span>
+    <button data-d="left">←</button><button data-d="down">↓</button><button data-d="right">→</button>
+  </div>
+
+  <section>
+    <h2>ルール</h2>
+    <ul class="rules">
+      <li>矢印キー(またはWASD)で、<b style="color:var(--blue)">青</b>と<b style="color:var(--orange)">橙</b>が同時に動く</li>
+      <li>橙は<b>左右だけ逆</b>に動く(上下は同じ)</li>
+      <li>壁や盤の端にぶつかると、その子だけその場に止まる</li>
+      <li>穴に落ちたら失敗。2人が<b>同時に</b>同じ色の輪に乗ったらクリア</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>遊んだら教えてください</h2>
+    <ul class="rules">
+      <li>10面の中で<b>一番難しかった面</b>の番号を、動画のコメントで教えてください</li>
+      <li>ステージの番号は、難しさの順番ではありません</li>
+    </ul>
+  </section>
+
+  <details class="data">
+  <summary>データを見る(AIの予想が答えに影響しないよう、遊び終わってから開くのがおすすめです)</summary>
+  <section>
+    <h2>データ:ランダムな盤面は何%解ける?</h2>
+    <div class="bar">
+      <button id="statsBtn">2000面を作って解く</button>
+      <span class="info" id="statsInfo"></span>
+    </div>
+    <canvas id="hist" width="720" height="240"></canvas>
+  </section>
+
+  <section>
+    <h2>データ:最短手数が長いほど、本当に難しい?</h2>
+    <p class="rules" style="padding:0;margin-bottom:8px">「ゴールに近づく手を選びやすい」だけの素朴なボットに、各面を100回ずつ挑ませた結果です。縦軸はボットがクリアまでにかかった平均手数(失敗は400手と数える)。</p>
+    <div class="bar">
+      <button id="botBtn">300面をボットに解かせる</button>
+      <span class="info" id="botInfo"></span>
+    </div>
+    <canvas id="scatter" width="720" height="320"></canvas>
+  </section>
+  </details>
+
+  <section>
+    <h2>このページについて</h2>
+    <ul class="rules">
+      <li>このゲームは、YouTubeチャンネル「AIまかせ開発室」の企画で、AI(Anthropic社のClaude)がルール・プログラム・ステージを作りました</li>
+      <li>このチャンネルとページは、Anthropic社とは関係のない非公式のものです</li>
+      <li>このページは、遊んだ結果やあなたの情報を集めたり送ったりしません</li>
+      <li>このページはGitHub Pagesで公開しています。GitHubの仕様により、訪問者のIPアドレスはセキュリティのためにGitHub側で記録されます(GitHubのプライバシーに関する声明を参照)</li>
+    </ul>
+  </section>
+</main>
+
+<script src="kagami-core.js"></script>
+<script>
+const K = window.Kagami;
+// v0.2:makeStageSetV2(20261029, 10, 300) で選んだ10面を固定(ボットの平均手数が少ない順)
+const STAGE_SEEDS = [20261399, 20261304, 20261108, 20261137, 20261269, 20261404, 20261177, 20261299, 20261118, 20261470];
+// v0.3:視聴者の「一番難しかった面」の答えにボットの順番が影響しないよう、
+// 並べる順番はプレイテスト(playtest.html の ORDER)と同じ固定の入れ替え順にする
+const ORDER = [3, 7, 0, 9, 5, 1, 8, 2, 6, 4];
+const stages = ORDER.map(i => STAGE_SEEDS[i]).map(seed => {
+  const st = K.generate(seed);
+  const b = K.botPlay(st, 100, seed);
+  return Object.assign(st, K.analyze(st), { botWin: b.win, botAvg: b.avg });
+});
+
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const CELL = 46, PAD = 18, GAP = 52;
+const BOARD = K.W * CELL;
+const OX = [PAD, PAD + BOARD + GAP], OY = 22;
+
+let idx = 0, stage, state, history, moves, status, hint;
+
+const sel = document.getElementById('stageSel');
+stages.forEach((s, i) => {
+  const o = document.createElement('option');
+  o.value = i; o.textContent = `ステージ ${i + 1}`;
+  sel.appendChild(o);
+});
+sel.onchange = () => load(+sel.value);
+
+function load(i) {
+  idx = i; sel.value = i; stage = stages[i];
+  state = { l: stage.startL, r: stage.startR };
+  history = []; moves = 0; status = 'play'; hint = null;
+  setMsg(''); draw();
+}
+
+function setMsg(t) { document.getElementById('msg').textContent = t; }
+
+function doMove(dir) {
+  if (status !== 'play') return;
+  const m = K.move(stage, state, dir);
+  history.push(state); moves++; hint = null;
+  if (m.fell) {
+    status = 'fell';
+    state = { l: m.l < 0 ? state.l : m.l, r: m.r < 0 ? state.r : m.r, fallL: m.l < 0, fallR: m.r < 0 };
+    setMsg('穴に落ちた! 「戻す」か「やり直し」で再挑戦');
+  } else {
+    state = { l: m.l, r: m.r };
+    if (m.cleared) {
+      status = 'clear';
+      const best = moves === stage.optimal ? '最短クリア!' : `(最短は ${stage.optimal} 手)`;
+      setMsg(`クリア! ${moves} 手 ${best}` + (idx < stages.length - 1 ? ' — Enterで次へ' : ' — 全ステージクリア!'));
+    }
+  }
+  draw();
+}
+
+function undo() {
+  if (!history.length) return;
+  state = history.pop(); moves--; status = 'play'; hint = null; setMsg(''); draw();
+}
+
+function showHint() {
+  if (status !== 'play') return;
+  const sol = K.solve(stage, state);
+  if (!sol) { setMsg('この状態からはクリアできません。「戻す」で戻ってください'); return; }
+  hint = sol.path[0];
+  setMsg(`ヒント:次は ${{ up: '↑', down: '↓', left: '←', right: '→' }[hint]}(ここから残り最短 ${sol.moves} 手)`);
+  draw();
+}
+
+function cellXY(b, pos) { return [OX[b] + (pos % K.W) * CELL, OY + ((pos / K.W) | 0) * CELL]; }
+
+function drawBoard(b, board, goal, pos, color, fell) {
+  for (let i = 0; i < K.N; i++) {
+    const [x, y] = cellXY(b, i), c = board[i];
+    if (c === K.WALL) {
+      ctx.fillStyle = '#3a4260'; roundRect(x + 2, y + 2, CELL - 4, CELL - 4, 6); ctx.fill();
+      ctx.fillStyle = '#4a5478'; roundRect(x + 2, y + 2, CELL - 4, CELL - 10, 6); ctx.fill();
+    } else if (c === K.HOLE) {
+      ctx.fillStyle = '#05060b'; ctx.beginPath(); ctx.arc(x + CELL / 2, y + CELL / 2, CELL * 0.36, 0, 7); ctx.fill();
+      ctx.strokeStyle = '#2a2f45'; ctx.lineWidth = 2; ctx.stroke();
+    } else {
+      ctx.fillStyle = (i % 2) ? '#1f2740' : '#222b46'; ctx.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
+    }
+  }
+  const [gx, gy] = cellXY(b, goal);
+  ctx.strokeStyle = color; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.arc(gx + CELL / 2, gy + CELL / 2, CELL * 0.34, 0, 7); ctx.stroke();
+
+  const [px, py] = cellXY(b, pos);
+  ctx.globalAlpha = fell ? 0.3 : 1;
+  ctx.fillStyle = color; ctx.beginPath(); ctx.arc(px + CELL / 2, py + CELL / 2, CELL * 0.27, 0, 7); ctx.fill();
+  ctx.fillStyle = '#0e1220';
+  ctx.beginPath(); ctx.arc(px + CELL / 2 - 5, py + CELL / 2 - 3, 2.6, 0, 7); ctx.arc(px + CELL / 2 + 5, py + CELL / 2 - 3, 2.6, 0, 7); ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+
+function arrow(cx, cy, dir, color) {
+  const a = { up: -Math.PI / 2, down: Math.PI / 2, left: Math.PI, right: 0 }[dir];
+  ctx.save(); ctx.translate(cx, cy); ctx.rotate(a); ctx.fillStyle = color;
+  ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-8, -11); ctx.lineTo(-8, 11); ctx.closePath(); ctx.fill(); ctx.restore();
+}
+
+function draw() {
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  drawBoard(0, stage.left, stage.goalL, state.l, '#4da3ff', state.fallL);
+  drawBoard(1, stage.right, stage.goalR, state.r, '#ff9b45', state.fallR);
+  // 中央の鏡
+  const mx = PAD + BOARD + GAP / 2;
+  ctx.strokeStyle = '#9fb4ff'; ctx.lineWidth = 2; ctx.setLineDash([6, 6]);
+  ctx.beginPath(); ctx.moveTo(mx, OY); ctx.lineTo(mx, OY + BOARD); ctx.stroke(); ctx.setLineDash([]);
+  if (hint) {
+    const flip = { left: 'right', right: 'left', up: 'up', down: 'down' };
+    const [lx, ly] = cellXY(0, state.l), [rx, ry] = cellXY(1, state.r);
+    arrow(lx + CELL / 2, ly + CELL / 2, hint, 'rgba(255,255,255,.85)');
+    arrow(rx + CELL / 2, ry + CELL / 2, flip[hint], 'rgba(255,255,255,.85)');
+  }
+  document.getElementById('info').textContent =
+    `${moves} 手`;
+}
+
+const KEYMAP = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', w: 'up', s: 'down', a: 'left', d: 'right' };
+addEventListener('keydown', e => {
+  if (KEYMAP[e.key]) { e.preventDefault(); doMove(KEYMAP[e.key]); }
+  else if (e.key === 'z' || e.key === 'Z') undo();
+  else if (e.key === 'r' || e.key === 'R') load(idx);
+  else if (e.key === 'h' || e.key === 'H') showHint();
+  else if (e.key === 'Enter' && status === 'clear' && idx < stages.length - 1) load(idx + 1);
+});
+document.querySelectorAll('.pad button').forEach(b => b.onclick = () => doMove(b.dataset.d));
+document.getElementById('undoBtn').onclick = undo;
+document.getElementById('resetBtn').onclick = () => load(idx);
+document.getElementById('hintBtn').onclick = showHint;
+
+// データ:ランダム盤面の統計
+document.getElementById('statsBtn').onclick = () => {
+  const t0 = performance.now();
+  const r = K.stats(1, 2000);
+  const ms = Math.round(performance.now() - t0);
+  document.getElementById('statsInfo').textContent =
+    `解けた:${r.solvable} / ${r.count} 面(${(r.solvable / r.count * 100).toFixed(1)}%)・最長 ${r.best.moves} 手(seed ${r.best.seed})・${ms}ms`;
+  drawHist(r);
+  window.lastStats = r;
+};
+
+function drawHist(r) {
+  const hc = document.getElementById('hist'), h = hc.getContext('2d');
+  h.clearRect(0, 0, hc.width, hc.height);
+  const maxM = r.best.moves, maxC = Math.max(...Object.values(r.hist));
+  const L = 40, B = 210, Wd = hc.width - L - 10, bw = Wd / (maxM + 1);
+  h.fillStyle = '#8c96b0'; h.font = '12px sans-serif';
+  for (let m = 0; m <= maxM; m++) {
+    const c = r.hist[m] || 0, bh = c / maxC * 180;
+    h.fillStyle = '#4da3ff'; h.fillRect(L + m * bw + 1, B - bh, bw - 2, bh);
+    if (m % 5 === 0) { h.fillStyle = '#8c96b0'; h.fillText(m, L + m * bw, B + 16); }
+  }
+  h.fillStyle = '#8c96b0'; h.fillText('最短手数 →', hc.width - 90, 22); h.fillText(`最多 ${maxC} 面`, 4, 22);
+}
+
+document.getElementById('botBtn').onclick = () => {
+  const t0 = performance.now();
+  const { pool } = K.makeStageSetV2(20261029, 10, 300);
+  const ms = Math.round(performance.now() - t0);
+  const xs = pool.map(s => s.optimal), ys = pool.map(s => s.botAvg);
+  const r = corr(xs, ys), never = pool.filter(s => s.botWin === 0).length;
+  document.getElementById('botInfo').textContent =
+    `相関係数 ${r.toFixed(2)}・ボットが1回も解けなかった面 ${never}/300・${ms}ms`;
+  drawScatter(pool);
+  window.lastBot = pool.map(s => ({ seed: s.seed, optimal: s.optimal, botAvg: s.botAvg, botWin: s.botWin, desync: s.desync, dead: s.dead }));
+};
+
+function corr(xs, ys) {
+  const n = xs.length, mx = xs.reduce((a, b) => a + b) / n, my = ys.reduce((a, b) => a + b) / n;
+  let sxy = 0, sx = 0, sy = 0;
+  for (let i = 0; i < n; i++) { sxy += (xs[i] - mx) * (ys[i] - my); sx += (xs[i] - mx) ** 2; sy += (ys[i] - my) ** 2; }
+  return sxy / Math.sqrt(sx * sy);
+}
+
+function drawScatter(pool) {
+  const c = document.getElementById('scatter'), g = c.getContext('2d');
+  g.clearRect(0, 0, c.width, c.height);
+  const L = 50, B = 286, Wd = c.width - L - 16, Hd = 260, maxX = 26;
+  g.strokeStyle = '#2f3854'; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(L, B - Hd); g.lineTo(L, B); g.lineTo(L + Wd, B); g.stroke();
+  g.fillStyle = '#8c96b0'; g.font = '12px sans-serif';
+  for (let x = 5; x <= maxX; x += 5) g.fillText(x, L + x / maxX * Wd - 6, B + 16);
+  for (let y = 0; y <= 400; y += 100) g.fillText(y, 8, B - y / 400 * Hd + 4);
+  g.fillText('最短手数 →', c.width - 86, B + 30);
+  g.fillText('ボットの平均手数', L + 6, B - Hd - 4);
+  const picked = new Set(STAGE_SEEDS);
+  for (const s of pool) {
+    const x = L + s.optimal / maxX * Wd, y = B - s.botAvg / 400 * Hd;
+    g.fillStyle = picked.has(s.seed) ? '#ff9b45' : 'rgba(77,163,255,.55)';
+    g.beginPath(); g.arc(x, y, picked.has(s.seed) ? 5 : 3, 0, 7); g.fill();
+  }
+}
+
+load(0);
+</script>
+</body>
+</html>
